@@ -1,59 +1,83 @@
-const colors = require('colors');
+//npm run start_3 команда для запуска в соответствии с заданием
+const fs = require('fs');
+const filePath = './access.log';
 
-const [minNumber, maxNumber] = process.argv.slice(2);
+const params = process.argv.splice(2);
 
-if (!parseInt(minNumber) || !parseInt(maxNumber)) {
-	console.log(`Границ должны быть числами`);
-	return;
+
+const writeStreams = new Map();
+
+const allKeyStat = "all";
+const statistics = new Map();
+statistics.set(allKeyStat, 0);
+
+params.forEach(element => {
+	writeStreams.set(element, fs.createWriteStream(
+		`./${element}_requests.log`,
+		{ encoding: 'utf-8' }
+	));
+
+	statistics.set(element, 0);
+});
+
+const addStat = (key) => {
+	let statVal = statistics.get(key);
+	statVal++;
+	statistics.set(key, statVal);
 }
 
-let usingMinNum = +minNumber;
-let usingMaxNum = +maxNumber;
 
-if (usingMinNum > usingMaxNum) {
-	usingMaxNum = +minNumber;
-	usingMinNum = +maxNumber;
-}
 
-console.log(`Диапазон ${usingMinNum} - ${usingMaxNum}`);
+const readStream = fs.createReadStream(
+	filePath,
+	'utf-8',
+	{ highWaterMark: 5 }
+);
 
-if (usingMinNum < 2) {
-	usingMinNum = 2;
-}
+let prevPart = '';
 
-let counter = 0;
-for (let curNumber = usingMinNum; curNumber <= usingMaxNum; curNumber++) {
-	if (isSimpleNumber(curNumber)) {
-		counter++;
-		switch (counter % 3) {
-			case 1: {
-				console.log(colors.green(curNumber));
-				break;
+const regexEndStr = new RegExp("\/[0-9]+\.[0-9]+\.[0-9]+\"");
+const regexStartStr = new RegExp("[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+");
+
+
+readStream.on('data', (chunk) => {
+
+	let items = chunk.split('\n');
+
+	items.forEach(element => {
+
+		let testLine = prevPart + element;
+		if (regexStartStr.test(testLine)) {
+			if (regexEndStr.test(testLine)) {
+
+				addStat(allKeyStat);
+
+				prevPart = '';
+				writeStreams.forEach((writeStream, ip, collect) => {
+					if (testLine.includes(ip)) {
+						//console.log(`${ip} : ${testLine}`);
+						writeStream.write(testLine);
+						writeStream.write(require('os').EOL);
+						addStat(ip);
+					}
+
+				});
 			}
-			case 2: {
-				console.log(colors.yellow(curNumber));
-				break;
-			}
-			case 0: {
-				console.log(colors.red(curNumber));
-				break;
+			else {
+				prevPart += element;
 			}
 		}
+	});
+});
 
-	}
-}
+readStream.on('end', () => {
+	console.log(`Всего считано ${statistics.get(allKeyStat)}`);
 
-if (counter == 0) {
-	console.log(colors.red("Простых чисел в диапазоне нет."));
-}
+	writeStreams.forEach((writeStream, ip, collect) => {
+		writeStream.end(() => { console.log(`Записано по IP ${ip} : ${statistics.get(ip)}`); });
+	});
+});
 
-function isSimpleNumber(num) {
-	let isSimple = true;
-	for (let i = (num - num % 2) / 2; i > 1; i--) {
-		if (num % i == 0) {
-			isSimple = false;
-			break;
-		}
-	}
-	return isSimple;
-}
+readStream.on('error', (err) => {
+	console.log(err);
+})
