@@ -1,59 +1,102 @@
-const colors = require('colors');
+const fs = require('fs');	//для работы с файловой системой
+const yargs = require('yargs');	//для работы с аргументами
+const path = require('path');	//для работы с путями
 
-const [minNumber, maxNumber] = process.argv.slice(2);
+//настройка и считывание переднных пользователм аргументов
+const options = yargs
+	.usage('usage: -p <pats to the file>').option('p', {
+		alias: 'path',
+		describe: 'Path to the file',
+		type: 'string',
+		demandOption: false,
+	})
+	.option('f', {
+		alias: 'find',
+		describe: 'string or pattern for find',
+		type: 'string',
+		demandOption: false,
+	}).argv;
 
-if (!parseInt(minNumber) || !parseInt(maxNumber)) {
-	console.log(`Границ должны быть числами`);
-	return;
+//console.log(options);
+
+var pathForStart = '.';
+if (options.p !== undefined) {
+	pathForStart = options.p;
+}
+else {
+	pathForStart += path.sep;
 }
 
-let usingMinNum = +minNumber;
-let usingMaxNum = +maxNumber;
+var writeFile = function (usingPath, findString) {
+	const readStream = fs.createReadStream(usingPath, 'utf-8');
 
-if (usingMinNum > usingMaxNum) {
-	usingMaxNum = +minNumber;
-	usingMinNum = +maxNumber;
-}
+	const readLine = require('readline');
 
-console.log(`Диапазон ${usingMinNum} - ${usingMaxNum}`);
-
-if (usingMinNum < 2) {
-	usingMinNum = 2;
-}
-
-let counter = 0;
-for (let curNumber = usingMinNum; curNumber <= usingMaxNum; curNumber++) {
-	if (isSimpleNumber(curNumber)) {
-		counter++;
-		switch (counter % 3) {
-			case 1: {
-				console.log(colors.green(curNumber));
-				break;
-			}
-			case 2: {
-				console.log(colors.yellow(curNumber));
-				break;
-			}
-			case 0: {
-				console.log(colors.red(curNumber));
-				break;
-			}
+	const rl = readLine.createInterface({
+		input: readStream,
+		terminal: true
+	})
+	var isFind = false;
+	rl.on('line', (line) => {
+		if (findString === undefined || line.includes(findString)) {
+			console.log(line);
+			isFind = true;
 		}
+	});
 
-	}
-}
-
-if (counter == 0) {
-	console.log(colors.red("Простых чисел в диапазоне нет."));
-}
-
-function isSimpleNumber(num) {
-	let isSimple = true;
-	for (let i = (num - num % 2) / 2; i > 1; i--) {
-		if (num % i == 0) {
-			isSimple = false;
-			break;
+	readStream.on('end', () => {
+		if (findString !== undefined && isFind == false) {
+			console.log("Совпадений не найдено");
 		}
-	}
-	return isSimple;
+	});
+
 }
+
+
+var showWolderContent = function (usingPath) {
+
+	var currentPath = '';
+	if (path.isAbsolute(usingPath)) {	//если передан на абсолютный путь, то превращаем его в абсолютный
+		currentPath = usingPath;
+	}
+	else {
+		currentPath = path.resolve(usingPath);
+	}
+
+
+	const isFile = (fileName) => fs.lstatSync(fileName).isFile();
+
+	const fileList = fs.readdirSync(currentPath);//.filter(isFile);
+
+	const showItems = [];
+
+	fileList.forEach((name) => {
+		showItems.push(
+			name
+		);
+	});
+
+	const inquirer = require('inquirer');
+
+	console.log("Текущее положение: " + currentPath);
+
+	inquirer.prompt([
+		{
+			name: 'fileName',
+			type: 'list',
+			message: 'Выберите',
+			choices: showItems,
+		}
+	]).then(({ fileName }) => {
+		var newPath = path.join(currentPath, fileName);
+		if (isFile(newPath)) {	//в случае еслт выбран файл, то обработка файла
+			console.log(`Выбран ${fileName}`);
+			writeFile(newPath, options.f);
+		}
+		else {	//если выюрана папка то перезапускаем функцию рекурсивно
+			showWolderContent(newPath);
+		}
+	});
+}
+
+showWolderContent(pathForStart);
