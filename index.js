@@ -1,83 +1,102 @@
-//npm run start_3 команда для запуска в соответствии с заданием
-const fs = require('fs');
-const filePath = './access.log';
+const fs = require('fs');	//для работы с файловой системой
+const yargs = require('yargs');	//для работы с аргументами
+const path = require('path');	//для работы с путями
 
-const params = process.argv.splice(2);
+//настройка и считывание переднных пользователм аргументов
+const options = yargs
+	.usage('usage: -p <pats to the file>').option('p', {
+		alias: 'path',
+		describe: 'Path to the file',
+		type: 'string',
+		demandOption: false,
+	})
+	.option('f', {
+		alias: 'find',
+		describe: 'string or pattern for find',
+		type: 'string',
+		demandOption: false,
+	}).argv;
 
+//console.log(options);
 
-const writeStreams = new Map();
+var pathForStart = '.';
+if (options.p !== undefined) {
+	pathForStart = options.p;
+}
+else {
+	pathForStart += path.sep;
+}
 
-const allKeyStat = "all";
-const statistics = new Map();
-statistics.set(allKeyStat, 0);
+var writeFile = function (usingPath, findString) {
+	const readStream = fs.createReadStream(usingPath, 'utf-8');
 
-params.forEach(element => {
-	writeStreams.set(element, fs.createWriteStream(
-		`./${element}_requests.log`,
-		{ encoding: 'utf-8' }
-	));
+	const readLine = require('readline');
 
-	statistics.set(element, 0);
-});
+	const rl = readLine.createInterface({
+		input: readStream,
+		terminal: true
+	})
+	var isFind = false;
+	rl.on('line', (line) => {
+		if (findString === undefined || line.includes(findString)) {
+			console.log(line);
+			isFind = true;
+		}
+	});
 
-const addStat = (key) => {
-	let statVal = statistics.get(key);
-	statVal++;
-	statistics.set(key, statVal);
+	readStream.on('end', () => {
+		if (findString !== undefined && isFind == false) {
+			console.log("Совпадений не найдено");
+		}
+	});
+
 }
 
 
+var showWolderContent = function (usingPath) {
 
-const readStream = fs.createReadStream(
-	filePath,
-	'utf-8',
-	{ highWaterMark: 5 }
-);
-
-let prevPart = '';
-
-const regexEndStr = new RegExp("\/[0-9]+\.[0-9]+\.[0-9]+\"");
-const regexStartStr = new RegExp("[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+");
+	var currentPath = '';
+	if (path.isAbsolute(usingPath)) {	//если передан на абсолютный путь, то превращаем его в абсолютный
+		currentPath = usingPath;
+	}
+	else {
+		currentPath = path.resolve(usingPath);
+	}
 
 
-readStream.on('data', (chunk) => {
+	const isFile = (fileName) => fs.lstatSync(fileName).isFile();
 
-	let items = chunk.split('\n');
+	const fileList = fs.readdirSync(currentPath);//.filter(isFile);
 
-	items.forEach(element => {
+	const showItems = [];
 
-		let testLine = prevPart + element;
-		if (regexStartStr.test(testLine)) {
-			if (regexEndStr.test(testLine)) {
+	fileList.forEach((name) => {
+		showItems.push(
+			name
+		);
+	});
 
-				addStat(allKeyStat);
+	const inquirer = require('inquirer');
 
-				prevPart = '';
-				writeStreams.forEach((writeStream, ip, collect) => {
-					if (testLine.includes(ip)) {
-						//console.log(`${ip} : ${testLine}`);
-						writeStream.write(testLine);
-						writeStream.write(require('os').EOL);
-						addStat(ip);
-					}
+	console.log("Текущее положение: " + currentPath);
 
-				});
-			}
-			else {
-				prevPart += element;
-			}
+	inquirer.prompt([
+		{
+			name: 'fileName',
+			type: 'list',
+			message: 'Выберите',
+			choices: showItems,
+		}
+	]).then(({ fileName }) => {
+		var newPath = path.join(currentPath, fileName);
+		if (isFile(newPath)) {	//в случае еслт выбран файл, то обработка файла
+			console.log(`Выбран ${fileName}`);
+			writeFile(newPath, options.f);
+		}
+		else {	//если выюрана папка то перезапускаем функцию рекурсивно
+			showWolderContent(newPath);
 		}
 	});
-});
+}
 
-readStream.on('end', () => {
-	console.log(`Всего считано ${statistics.get(allKeyStat)}`);
-
-	writeStreams.forEach((writeStream, ip, collect) => {
-		writeStream.end(() => { console.log(`Записано по IP ${ip} : ${statistics.get(ip)}`); });
-	});
-});
-
-readStream.on('error', (err) => {
-	console.log(err);
-})
+showWolderContent(pathForStart);
